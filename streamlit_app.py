@@ -46,7 +46,7 @@ SCOPE = [
 FOCUS_GROUPS = ["Back", "Shoulder", "Chest", "Biceps", "Legs", "Triceps"]
 
 def _get_sheet(tab_name: str):
-    creds = Credentials.from_service_account_file("creds.json", scopes=SCOPE)
+    creds = Credentials.from_service_account_info(st.secrets["gcp_service_account"], scopes=SCOPE)
     client = gspread.authorize(creds)
     sheet = client.open_by_key("1MS0TYrMP_7rrsf9Trv50sqxJnk_837rLebtKXbpHKxA")
     return sheet.worksheet(tab_name)
