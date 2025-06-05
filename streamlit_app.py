@@ -28,7 +28,7 @@ def load_data() -> pd.DataFrame:
     df.columns = df.columns.str.strip()
     if df.empty:
         return df
-    df["Date"] = pd.to_datetime(df["Date"], errors="coerce")
+    df["Date"] = pd.to_datetime(df["Date"], format="%Y-%m-%d", errors="coerce")
     return df
 
 @st.cache_data(ttl=10, show_spinner=False)
@@ -73,6 +73,7 @@ def log_workout():
     exercises_map = load_exercises()
     default_exercises = exercises_map.get(focus, [])
     df = load_data()
+    st.write("DataFrame Preview:", df.head())
 
     # Show last session for selected focus
     if not df.empty:
