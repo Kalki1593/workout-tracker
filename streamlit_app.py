@@ -1,3 +1,4 @@
+
 """
 Streamlit Workout Tracker
 =========================
@@ -46,8 +47,6 @@ gsheet_id = "your-google-sheet-id"
   • Exercises
     `Focus | Exercise`
 """
-
-# The rest of the code remains unchanged.
 
 import streamlit as st
 import pandas as pd
@@ -128,20 +127,18 @@ def log_workout():
         st.markdown(f"#### Last recorded session: {last_date.date()}")
         last_session = past_sessions[past_sessions["Date"] == last_date].sort_values(by=["Exercise", "Set"])
 
-        def build_summary_table(col_prefix):
-            pivoted = (
-                last_session.groupby(["Exercise", "Set"])[[f"{col_prefix}_Weight", f"{col_prefix}_Reps"]]
-                .first()
-                .unstack(level=1)
+        def build_summary_table(prefix):
+            summary = (
+                last_session
+                .pivot_table(index="Exercise", columns="Set", values=[f"{prefix}_Weight", f"{prefix}_Reps"], aggfunc="first")
             )
-            columns = []
+            flat_columns = []
             for i in range(1, 5):
-                columns.append((f"{col_prefix}_Weight", i))
-                columns.append((f"{col_prefix}_Reps", i))
-            pivoted = pivoted[columns].copy()
-            pivoted.columns = [f"Set {i//2+1} {'Weight' if i%2==0 else 'Reps'}" for i in range(8)]
-            pivoted = pivoted.reset_index()
-            return pivoted
+                flat_columns.append((f"{prefix}_Weight", i))
+                flat_columns.append((f"{prefix}_Reps", i))
+            summary = summary[flat_columns].copy()
+            summary.columns = [f"Set {i//2+1} {'Weight' if i%2==0 else 'Reps'}" for i in range(8)]
+            return summary.reset_index()
 
         st.markdown("#### Ninaad's Summary")
         st.dataframe(build_summary_table("Ninaad"), use_container_width=True)
@@ -150,7 +147,7 @@ def log_workout():
         st.dataframe(build_summary_table("Vasanta"), use_container_width=True)
 
     new_ex = st.text_input("Want to add a new exercise?")
-    if new_ex and st.button("➕ Add Exercise"):
+    if new_ex and st.button("\u2795 Add Exercise"):
         add_new_exercise(focus, new_ex)
         st.success(f"Added '{new_ex}' to {focus}")
         st.rerun()
@@ -159,11 +156,11 @@ def log_workout():
     with st.form(key="log_form"):
         st.markdown("#### Ninaad's Log")
         n_cols = st.columns(8)
-        ninaad_inputs = [(n_cols[i].number_input(f"Set {i//2+1} {'Weight' if i%2==0 else 'Reps'}", min_value=0.0 if i%2==0 else 0, step=0.5 if i%2==0 else 1)) for i in range(8)]
+        ninaad_inputs = [(n_cols[i].number_input(f"Set {i//2+1} {'Weight' if i%2==0 else 'Reps'}", min_value=0.0 if i%2==0 else 0, step=0.5 if i%2==0 else 1, key=f"n_{i}")) for i in range(8)]
 
         st.markdown("#### Vasanta's Log")
         v_cols = st.columns(8)
-        vasanta_inputs = [(v_cols[i].number_input(f"Set {i//2+1} {'Weight' if i%2==0 else 'Reps'}", min_value=0.0 if i%2==0 else 0, step=0.5 if i%2==0 else 1)) for i in range(8)]
+        vasanta_inputs = [(v_cols[i].number_input(f"Set {i//2+1} {'Weight' if i%2==0 else 'Reps'}", min_value=0.0 if i%2==0 else 0, step=0.5 if i%2==0 else 1, key=f"v_{i}")) for i in range(8)]
 
         submitted = st.form_submit_button("Add to log")
         if submitted:
