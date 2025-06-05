@@ -65,7 +65,7 @@ FOCUS_GROUPS = ["Back", "Shoulder", "Chest", "Biceps", "Legs", "Triceps"]
 def _get_sheet(tab_name: str):
     creds = Credentials.from_service_account_info(st.secrets["gcp_service_account"], scopes=SCOPE)
     client = gspread.authorize(creds)
-    sheet = client.open_by_key(st.secrets["gcp_service_account"]["gsheet_id"])
+    sheet = client.open_by_key(st.secrets["gsheet_id"])
     return sheet.worksheet(tab_name)
 
 
@@ -120,11 +120,10 @@ def log_workout():
 
     df = load_data()
 
-    # Summary table always visible upon selecting a focus group
     past_sessions = df[df["Focus"] == focus]
     if not past_sessions.empty:
         last_date = past_sessions["Date"].max()
-        st.markdown(f"#### Last recorded session: {last_date.date()}")
+        st.markdown(f"#### Last recorded session: {last_date.date() if pd.notnull(last_date) else 'None'}")
         last_session = past_sessions[past_sessions["Date"] == last_date].sort_values(by=["Exercise", "Set"])
 
         def build_summary_table(prefix):
@@ -132,12 +131,13 @@ def log_workout():
                 last_session
                 .pivot_table(index="Exercise", columns="Set", values=[f"{prefix}_Weight", f"{prefix}_Reps"], aggfunc="first")
             )
-            flat_columns = []
+            columns = []
             for i in range(1, 5):
-                flat_columns.append((f"{prefix}_Weight", i))
-                flat_columns.append((f"{prefix}_Reps", i))
-            summary = summary[flat_columns].copy()
-            summary.columns = [f"Set {i//2+1} {'Weight' if i%2==0 else 'Reps'}" for i in range(8)]
+                columns.append((f"{prefix}_Weight", i))
+                columns.append((f"{prefix}_Reps", i))
+            valid_cols = [c for c in columns if c in summary.columns]
+            summary = summary[valid_cols].copy()
+            summary.columns = [f"Set {i//2+1} {'Weight' if i%2==0 else 'Reps'}" for i in range(len(valid_cols))]
             return summary.reset_index()
 
         st.markdown("#### Ninaad's Summary")
