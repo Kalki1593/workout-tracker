@@ -1,4 +1,3 @@
-
 """
 Streamlit Workout Tracker
 =========================
@@ -23,22 +22,39 @@ Before you run
 - **Python ≥ 3.10**
 - `pip install streamlit gspread oauth2client pandas`
 - Create a Google Cloud “Service Account”, enable *Google Sheets API*,
-  download the JSON key, and store it in **Streamlit Secrets** as
-  `gcp_service_account`.
+  download the JSON key and **convert it to secrets.toml** format.
+- Inside `.streamlit/secrets.toml`, add:
+
+```toml
+[gcp_service_account]
+type = "service_account"
+project_id = "workout-tracker-461712"
+private_key_id = "your-private-key-id"
+private_key = "-----BEGIN PRIVATE KEY-----\nMIIEv...\n-----END PRIVATE KEY-----\n"
+client_email = "streamlit-sheets-access@workout-tracker-461712.iam.gserviceaccount.com"
+client_id = "your-client-id"
+auth_uri = "https://accounts.google.com/o/oauth2/auth"
+token_uri = "https://oauth2.googleapis.com/token"
+auth_provider_x509_cert_url = "https://www.googleapis.com/oauth2/v1/certs"
+client_x509_cert_url = "https://www.googleapis.com/robot/v1/metadata/x509/streamlit-sheets-access%40workout-tracker-461712.iam.gserviceaccount.com"
+gsheet_id = "your-google-sheet-id"
+```
+
 - Create a Google Sheet with two tabs:
   • WorkoutLog
     `Date | Exercise | Set | Focus | Ninaad_Weight | Ninaad_Reps | Vasanta_Weight | Vasanta_Reps`
   • Exercises
     `Focus | Exercise`
-- In Streamlit Secrets add `gsheet_id = "<your‑sheet‑id>"`.
 """
+
+# The rest of the code remains unchanged.
+
 import streamlit as st
 import pandas as pd
 import datetime as dt
 from google.oauth2.service_account import Credentials
 import gspread
 
-# ---------------------------  Google Sheets Access  ---------------------------
 SCOPE = [
     "https://spreadsheets.google.com/feeds",
     "https://www.googleapis.com/auth/drive",
@@ -46,11 +62,13 @@ SCOPE = [
 
 FOCUS_GROUPS = ["Back", "Shoulder", "Chest", "Biceps", "Legs", "Triceps"]
 
+
 def _get_sheet(tab_name: str):
     creds = Credentials.from_service_account_info(st.secrets["gcp_service_account"], scopes=SCOPE)
     client = gspread.authorize(creds)
-    sheet = client.open_by_key(st.secrets["gcp_service_account"]["gsheet_id"])  # FIXED LINE
+    sheet = client.open_by_key(st.secrets["gcp_service_account"]["gsheet_id"])
     return sheet.worksheet(tab_name)
+
 
 @st.cache_data(show_spinner=False)
 def load_data() -> pd.DataFrame:
@@ -60,8 +78,9 @@ def load_data() -> pd.DataFrame:
     df.columns = df.columns.str.strip()
     if df.empty:
         return df
-    df["Date"] = pd.to_datetime(df["Date"], format='mixed')
+    df["Date"] = pd.to_datetime(df["Date"], errors='coerce')
     return df
+
 
 @st.cache_data(ttl=10, show_spinner=False)
 def load_exercises() -> dict:
@@ -70,13 +89,16 @@ def load_exercises() -> dict:
     df = pd.DataFrame(rows)
     return df.groupby("Focus")["Exercise"].apply(list).to_dict()
 
+
 def append_row(row: list[str | int | float]):
     ws = _get_sheet("WorkoutLog")
     ws.append_row(row, value_input_option="USER_ENTERED")
 
+
 def add_new_exercise(focus: str, exercise: str):
     ws = _get_sheet("Exercises")
     ws.append_row([focus, exercise], value_input_option="USER_ENTERED")
+
 
 # ---------------------------  UI: Log Workout ---------------------------
 
@@ -99,98 +121,81 @@ def log_workout():
 
     df = load_data()
 
-    # New exercise input
+    # Summary table always visible upon selecting a focus group
+    past_sessions = df[df["Focus"] == focus]
+    if not past_sessions.empty:
+        last_date = past_sessions["Date"].max()
+        st.markdown(f"#### Last recorded session: {last_date.date()}")
+        last_session = past_sessions[past_sessions["Date"] == last_date].sort_values(by=["Exercise", "Set"])
+
+        def build_summary_table(col_prefix):
+            pivoted = (
+                last_session.groupby(["Exercise", "Set"])[[f"{col_prefix}_Weight", f"{col_prefix}_Reps"]]
+                .first()
+                .unstack(level=1)
+            )
+            columns = []
+            for i in range(1, 5):
+                columns.append((f"{col_prefix}_Weight", i))
+                columns.append((f"{col_prefix}_Reps", i))
+            pivoted = pivoted[columns].copy()
+            pivoted.columns = [f"Set {i//2+1} {'Weight' if i%2==0 else 'Reps'}" for i in range(8)]
+            pivoted = pivoted.reset_index()
+            return pivoted
+
+        st.markdown("#### Ninaad's Summary")
+        st.dataframe(build_summary_table("Ninaad"), use_container_width=True)
+
+        st.markdown("#### Vasanta's Summary")
+        st.dataframe(build_summary_table("Vasanta"), use_container_width=True)
+
     new_ex = st.text_input("Want to add a new exercise?")
     if new_ex and st.button("➕ Add Exercise"):
         add_new_exercise(focus, new_ex)
         st.success(f"Added '{new_ex}' to {focus}")
         st.rerun()
 
-    # Workout logging inputs
     exercise = st.selectbox("Exercise", default_exercises)
-
-    with st.form("log_form"):
+    with st.form(key="log_form"):
         st.markdown("#### Ninaad's Log")
-        col_n1, col_n2 = st.columns(2)
-        with col_n1:
-            n_weights = [st.number_input(f"Set {i+1} Weight (kg)", value=None, min_value=0.0, step=0.5, key=f"nw_{i}") for i in range(4)]
-        with col_n2:
-            n_reps = [st.number_input(f"Set {i+1} Reps", value=None, min_value=0, step=1, key=f"nr_{i}") for i in range(4)]
+        n_cols = st.columns(8)
+        ninaad_inputs = [(n_cols[i].number_input(f"Set {i//2+1} {'Weight' if i%2==0 else 'Reps'}", min_value=0.0 if i%2==0 else 0, step=0.5 if i%2==0 else 1)) for i in range(8)]
 
         st.markdown("#### Vasanta's Log")
-        col_v1, col_v2 = st.columns(2)
-        with col_v1:
-            v_weights = [st.number_input(f"Set {i+1} Weight (kg)", value=None, min_value=0.0, step=0.5, key=f"vw_{i}") for i in range(4)]
-        with col_v2:
-            v_reps = [st.number_input(f"Set {i+1} Reps", value=None, min_value=0, step=1, key=f"vr_{i}") for i in range(4)]
+        v_cols = st.columns(8)
+        vasanta_inputs = [(v_cols[i].number_input(f"Set {i//2+1} {'Weight' if i%2==0 else 'Reps'}", min_value=0.0 if i%2==0 else 0, step=0.5 if i%2==0 else 1)) for i in range(8)]
 
         submitted = st.form_submit_button("Add to log")
+        if submitted:
+            logged_any = False
+            for i in range(4):
+                nw, nr = ninaad_inputs[2 * i], ninaad_inputs[2 * i + 1]
+                vw, vr = vasanta_inputs[2 * i], vasanta_inputs[2 * i + 1]
+                if any([nw, nr, vw, vr]):
+                    append_row([
+                        str(date),
+                        exercise,
+                        i + 1,
+                        focus,
+                        nw,
+                        nr,
+                        vw,
+                        vr,
+                    ])
+                    logged_any = True
+            if logged_any:
+                st.success("✅ All sets logged!")
+                st.rerun()
+            else:
+                st.warning("No values entered to log.")
 
-    if submitted:
-        for i in range(4):
-            if any([
-                n_weights[i] is not None and n_reps[i] is not None,
-                v_weights[i] is not None and v_reps[i] is not None
-            ]):
-                append_row([
-                    str(date),
-                    exercise,
-                    i + 1,
-                    focus,
-                    n_weights[i] if n_weights[i] else "",
-                    n_reps[i] if n_reps[i] else "",
-                    v_weights[i] if v_weights[i] else "",
-                    v_reps[i] if v_reps[i] else "",
-                ])
-        st.success("✅  All sets logged!")
-        st.rerun()
-
-    # Show last session for selected focus
-    past_sessions = df[df["Focus"] == focus]
-    if not past_sessions.empty:
-        last_date = past_sessions["Date"].max()
-        st.write(f"Last recorded date for {focus}: {last_date}")
-        past_sessions["Set"] = pd.to_numeric(past_sessions["Set"], errors="coerce")
-        last_session = past_sessions[past_sessions["Date"] == last_date].sort_values(by=["Exercise", "Set"])
-
-        # Build summary pivot for Ninaad
-        ninaad_df = last_session.pivot_table(
-            index="Exercise",
-            columns="Set",
-            values=["Ninaad_Weight", "Ninaad_Reps"],
-            aggfunc="first"
-        )
-        ninaad_df = ninaad_df.reorder_levels([1, 0], axis=1).sort_index(axis=1)
-        ninaad_df.columns = [f"Set {s} {m.split('_')[1]}" for s, m in ninaad_df.columns]
-        ninaad_df = ninaad_df.reset_index()
-        ninaad_df.index = ninaad_df.index + 1
-
-        # Build summary pivot for Vasanta
-        vasanta_df = last_session.pivot_table(
-            index="Exercise",
-            columns="Set",
-            values=["Vasanta_Weight", "Vasanta_Reps"],
-            aggfunc="first"
-        )
-        vasanta_df = vasanta_df.reorder_levels([1, 0], axis=1).sort_index(axis=1)
-        vasanta_df.columns = [f"Set {s} {m.split('_')[1]}" for s, m in vasanta_df.columns]
-        vasanta_df = vasanta_df.reset_index()
-        vasanta_df.index = vasanta_df.index + 1
-
-        st.markdown("---")
-        st.markdown("### Ninaad's Summary")
-        st.dataframe(ninaad_df, use_container_width=True)
-
-        st.markdown("### Vasanta's Summary")
-        st.dataframe(vasanta_df, use_container_width=True)
-
-# ---------------------------  Main Entry Point ---------------------------
 
 def main():
     st.set_page_config(page_title="Workout Tracker", page_icon="🏋️‍♂️", layout="centered")
     mode = st.sidebar.radio("Mode", ["Log Workout"])
     if mode == "Log Workout":
         log_workout()
+
 
 if __name__ == "__main__":
     main()
