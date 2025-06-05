@@ -52,10 +52,9 @@ def build_summary_table(person: str, df: pd.DataFrame, focus: str):
         return pd.DataFrame()
     recent = recent[recent["Date"] == recent["Date"].max()]
     recent = recent.groupby(["Exercise", "Set"])[[f"{person}_Weight", f"{person}_Reps"]].first().reset_index()
-    pivoted = recent.pivot(index="Exercise", columns="Set")
-    pivoted.columns = [f"Set {s} {'Weight' if 'Weight' in m else 'Reps'}" for m, s in pivoted.columns]
-    pivoted = pivoted.reset_index()
-    return pivoted
+    wide = recent.pivot(index="Exercise", columns="Set")
+    wide.columns = [f"Set {s} {'Weight' if 'Weight' in m else 'Reps'}" for m, s in wide.columns]
+    return wide.reset_index()
 
 def log_workout():
     st.subheader("Log today's workout")
@@ -98,11 +97,25 @@ def log_workout():
     with st.form("log_form"):
         st.markdown("### Ninaad's Log")
         n_cols = st.columns(8)
-        ninaad_inputs = [(n_cols[i].number_input(f"Set {i//2+1} {'Weight' if i%2==0 else 'Reps'}", min_value=0.0 if i%2==0 else 0, step=0.5 if i%2==0 else 1, key=f"n_{i}")) for i in range(8)]
+        ninaad_inputs = [
+            n_cols[i].number_input(
+                f"Set {i//2+1} {'Weight' if i%2==0 else 'Reps'}",
+                min_value=0.0 if i%2==0 else 0,
+                step=0.5 if i%2==0 else 1,
+                key=f"n_{i}_{exercise}"
+            ) for i in range(8)
+        ]
 
         st.markdown("### Vasanta's Log")
         v_cols = st.columns(8)
-        vasanta_inputs = [(v_cols[i].number_input(f"Set {i//2+1} {'Weight' if i%2==0 else 'Reps'}", min_value=0.0 if i%2==0 else 0, step=0.5 if i%2==0 else 1, key=f"v_{i}")) for i in range(8)]
+        vasanta_inputs = [
+            v_cols[i].number_input(
+                f"Set {i//2+1} {'Weight' if i%2==0 else 'Reps'}",
+                min_value=0.0 if i%2==0 else 0,
+                step=0.5 if i%2==0 else 1,
+                key=f"v_{i}_{exercise}"
+            ) for i in range(8)
+        ]
 
         submitted = st.form_submit_button("Add to log")
 
@@ -111,7 +124,7 @@ def log_workout():
         for i in range(4):
             nw, nr = ninaad_inputs[2*i], ninaad_inputs[2*i+1]
             vw, vr = vasanta_inputs[2*i], vasanta_inputs[2*i+1]
-            if nw or nr or vw or vr:
+            if any([nw, nr, vw, vr]):
                 append_row([
                     str(date), exercise, i+1, focus,
                     nw, nr, vw, vr
@@ -120,7 +133,6 @@ def log_workout():
         if count:
             st.success(f"✅ {count} sets logged!")
             st.rerun()
-
 
 def main():
     st.set_page_config(page_title="Workout Tracker", page_icon="🏋️‍♂️", layout="wide")
