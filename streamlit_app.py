@@ -51,7 +51,14 @@ def build_summary_table(person: str, df: pd.DataFrame, focus: str):
     if recent.empty:
         return pd.DataFrame()
     recent = recent[recent["Date"] == recent["Date"].max()]
-    recent = recent.groupby(["Exercise", "Set"])[[f"{person}_Weight", f"{person}_Reps"]].first().reset_index()
+    
+    # Ensure expected columns exist
+    expected_cols = [f"{person}_Weight", f"{person}_Reps"]
+    if not all(col in recent.columns for col in expected_cols):
+        st.warning(f"Missing columns for {person} in data: {expected_cols}")
+        return pd.DataFrame()
+
+    recent = recent.groupby(["Exercise", "Set"])[expected_cols].first().reset_index()
     wide = recent.pivot(index="Exercise", columns="Set")
     wide.columns = [f"Set {s} {'Weight' if 'Weight' in m else 'Reps'}" for m, s in wide.columns]
     return wide.reset_index()
@@ -71,8 +78,13 @@ def log_workout():
 
     focus = st.selectbox("Focus Muscle Group", options=FOCUS_GROUPS, index=FOCUS_GROUPS.index(default_focus))
     exercises_map = load_exercises()
+    st.write("Loaded gsheet_id:", st.secrets.get("gsheet_id", "NOT FOUND"))
+    st.write("Exercises loaded for focus group:", focus)
+    st.write(exercises_map)
     default_exercises = exercises_map.get(focus, [])
     df = load_data()
+    st.write("Data loaded from WorkoutLog:")
+    st.dataframe(df.head())
     st.write("DataFrame Preview:", df.head())
 
     # Show last session for selected focus
