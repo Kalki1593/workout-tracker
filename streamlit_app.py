@@ -1,3 +1,4 @@
+
 """
 Streamlit Workout Tracker
 =========================
@@ -48,7 +49,7 @@ FOCUS_GROUPS = ["Back", "Shoulder", "Chest", "Biceps", "Legs", "Triceps"]
 def _get_sheet(tab_name: str):
     creds = Credentials.from_service_account_info(st.secrets["gcp_service_account"], scopes=SCOPE)
     client = gspread.authorize(creds)
-    sheet = client.open_by_key("1MS0TYrMP_7rrsf9Trv50sqxJnk_837rLebtKXbpHKxA")
+    sheet = client.open_by_key(st.secrets["gsheet_id"])
     return sheet.worksheet(tab_name)
 
 @st.cache_data(show_spinner=False)
@@ -107,7 +108,8 @@ def log_workout():
 
     # Workout logging inputs
     exercise = st.selectbox("Exercise", default_exercises)
-    with st.container():
+
+    with st.form("log_form"):
         st.markdown("#### Ninaad's Log")
         col_n1, col_n2 = st.columns(2)
         with col_n1:
@@ -115,7 +117,6 @@ def log_workout():
         with col_n2:
             n_reps = [st.number_input(f"Set {i+1} Reps", value=None, min_value=0, step=1, key=f"nr_{i}") for i in range(4)]
 
-    with st.container():
         st.markdown("#### Vasanta's Log")
         col_v1, col_v2 = st.columns(2)
         with col_v1:
@@ -123,23 +124,23 @@ def log_workout():
         with col_v2:
             v_reps = [st.number_input(f"Set {i+1} Reps", value=None, min_value=0, step=1, key=f"vr_{i}") for i in range(4)]
 
-    if st.button("Add to log"):
+        submitted = st.form_submit_button("Add to log")
+
+    if submitted:
         for i in range(4):
-            if all([
-                n_weights[i] is not None,
-                n_reps[i] is not None,
-                v_weights[i] is not None,
-                v_reps[i] is not None
+            if any([
+                n_weights[i] is not None and n_reps[i] is not None,
+                v_weights[i] is not None and v_reps[i] is not None
             ]):
                 append_row([
                     str(date),
                     exercise,
                     i + 1,
                     focus,
-                    n_weights[i],
-                    n_reps[i],
-                    v_weights[i],
-                    v_reps[i],
+                    n_weights[i] if n_weights[i] else "",
+                    n_reps[i] if n_reps[i] else "",
+                    v_weights[i] if v_weights[i] else "",
+                    v_reps[i] if v_reps[i] else "",
                 ])
         st.success("✅  All sets logged!")
         st.rerun()
@@ -153,13 +154,6 @@ def log_workout():
         last_session = past_sessions[past_sessions["Date"] == last_date].sort_values(by=["Exercise", "Set"])
 
         # Build summary pivot for Ninaad
-        ninaad_df = (
-            last_session.groupby(["Exercise", "Set"])
-            [["Ninaad_Weight", "Ninaad_Reps"]]
-            .first()
-            .reset_index()
-            .pivot(index="Exercise", columns="Set")
-        )
         ninaad_df = last_session.pivot_table(
             index="Exercise",
             columns="Set",
@@ -172,13 +166,6 @@ def log_workout():
         ninaad_df.index = ninaad_df.index + 1
 
         # Build summary pivot for Vasanta
-        vasanta_df = (
-            last_session.groupby(["Exercise", "Set"])
-            [["Vasanta_Weight", "Vasanta_Reps"]]
-            .first()
-            .reset_index()
-            .pivot(index="Exercise", columns="Set")
-        )
         vasanta_df = last_session.pivot_table(
             index="Exercise",
             columns="Set",
