@@ -1,9 +1,9 @@
 import streamlit as st
-st.cache_data.clear()
 import pandas as pd
 import datetime as dt
 from google.oauth2.service_account import Credentials
 import gspread
+import json
 
 # ---------------------------  Google Sheets Access ---------------------------
 SCOPE = [
@@ -14,11 +14,12 @@ SCOPE = [
 FOCUS_GROUPS = ["Back", "Shoulder", "Chest", "Biceps", "Legs", "Triceps"]
 
 def _get_sheet(tab_name: str):
-    creds = Credentials.from_service_account_info(
-        st.secrets["gcp_service_account"], scopes=SCOPE
-    )
+    with open("creds.json") as f:
+        service_account_info = json.load(f)
+
+    creds = Credentials.from_service_account_info(service_account_info, scopes=SCOPE)
     client = gspread.authorize(creds)
-    sheet = client.open_by_key(st.secrets["gsheet_id"])
+    sheet = client.open_by_key("1MS0TYrMP_7rrsf9Trv50sqxJnk_837rLebtKXbpHKxA")
     return sheet.worksheet(tab_name)
 
 @st.cache_data(show_spinner=False)
@@ -29,7 +30,9 @@ def load_data() -> pd.DataFrame:
     df.columns = df.columns.str.strip()
     if df.empty:
         return df
-    df["Date"] = pd.to_datetime(df["Date"], format="%Y-%m-%d", errors="coerce")
+    df["Date"] = pd.to_datetime(df["Date"], errors="coerce").dt.strftime("%m/%d/%Y")
+    df["Exercise"] = df["Exercise"].str.strip()
+    df["Focus"] = df["Focus"].str.strip()
     return df
 
 @st.cache_data(ttl=10, show_spinner=False)
@@ -37,6 +40,9 @@ def load_exercises() -> dict:
     ws = _get_sheet("Exercises")
     rows = ws.get_all_records()
     df = pd.DataFrame(rows)
+    df.columns = df.columns.str.strip()
+    df["Focus"] = df["Focus"].str.strip()
+    df["Exercise"] = df["Exercise"].str.strip()
     return df.groupby("Focus")["Exercise"].apply(list).to_dict()
 
 def append_row(row: list[str | int | float]):
@@ -52,17 +58,21 @@ def build_summary_table(person: str, df: pd.DataFrame, focus: str):
     if recent.empty:
         return pd.DataFrame()
     recent = recent[recent["Date"] == recent["Date"].max()]
-    
-    # Ensure expected columns exist
-    expected_cols = [f"{person}_Weight", f"{person}_Reps"]
-    if not all(col in recent.columns for col in expected_cols):
-        st.warning(f"Missing columns for {person} in data: {expected_cols}")
+    recent = recent.groupby(["Exercise", "Set"])[[f"{person}_Weight", f"{person}_Reps"]].first().reset_index()
+    if recent.empty:
         return pd.DataFrame()
-
-    recent = recent.groupby(["Exercise", "Set"])[expected_cols].first().reset_index()
     wide = recent.pivot(index="Exercise", columns="Set")
-    wide.columns = [f"Set {s} {'Weight' if 'Weight' in m else 'Reps'}" for m, s in wide.columns]
-    return wide.reset_index()
+    flat_columns = []
+    for s in sorted(set(s for _, s in wide.columns)):
+        for m in ["Weight", "Reps"]:
+            flat_columns.append(f"Set {int(s)} {m}")
+    wide.columns = flat_columns
+    wide.columns.name = None
+    wide.reset_index(inplace=True)
+    return wide
+
+def safe(x, is_weight=True):
+    return float(x) if (x is not None and is_weight) else int(x) if x is not None else 0
 
 def log_workout():
     st.subheader("Log today's workout")
@@ -79,26 +89,8 @@ def log_workout():
 
     focus = st.selectbox("Focus Muscle Group", options=FOCUS_GROUPS, index=FOCUS_GROUPS.index(default_focus))
     exercises_map = load_exercises()
-    st.write("Loaded gsheet_id:", st.secrets.get("gsheet_id", "NOT FOUND"))
-    st.write("Exercises loaded for focus group:", focus)
-    st.write(exercises_map)
     default_exercises = exercises_map.get(focus, [])
     df = load_data()
-    st.write("Data loaded from WorkoutLog:")
-    st.dataframe(df.head())
-    st.write("DataFrame Preview:", df.head())
-
-    # Show last session for selected focus
-    if not df.empty:
-        last_focus = df[df["Focus"] == focus]
-        if not last_focus.empty:
-            st.write(f"Last recorded session: {last_focus['Date'].max().date()}")
-            st.markdown("### Ninaad's Summary")
-            st.dataframe(build_summary_table("Ninaad", df, focus), use_container_width=True)
-            st.markdown("### Vasanta's Summary")
-            st.dataframe(build_summary_table("Vasanta", df, focus), use_container_width=True)
-        else:
-            st.write("No past session found for this focus.")
 
     new_ex = st.text_input("Want to add a new exercise?")
     if new_ex and st.button("➕ Add Exercise"):
@@ -111,12 +103,16 @@ def log_workout():
     with st.form("log_form"):
         st.markdown("### Ninaad's Log")
         n_cols = st.columns(8)
+        import time
+        uid = "static_uid"  # Prevent rerun from regenerating keys
         ninaad_inputs = [
             n_cols[i].number_input(
                 f"Set {i//2+1} {'Weight' if i%2==0 else 'Reps'}",
                 min_value=0.0 if i%2==0 else 0,
                 step=0.5 if i%2==0 else 1,
-                key=f"n_{i}_{exercise}"
+                key=f"n_{i}_{exercise}_{focus}_{uid}",
+                value=None,
+                placeholder=""
             ) for i in range(8)
         ]
 
@@ -127,7 +123,9 @@ def log_workout():
                 f"Set {i//2+1} {'Weight' if i%2==0 else 'Reps'}",
                 min_value=0.0 if i%2==0 else 0,
                 step=0.5 if i%2==0 else 1,
-                key=f"v_{i}_{exercise}"
+                key=f"v_{i}_{exercise}_{focus}_{uid}",
+                value=None,
+                placeholder=""
             ) for i in range(8)
         ]
 
@@ -138,15 +136,43 @@ def log_workout():
         for i in range(4):
             nw, nr = ninaad_inputs[2*i], ninaad_inputs[2*i+1]
             vw, vr = vasanta_inputs[2*i], vasanta_inputs[2*i+1]
-            if any([nw, nr, vw, vr]):
+            if any(x is not None and x > 0 for x in [nw, nr, vw, vr]):
                 append_row([
                     str(date), exercise, i+1, focus,
-                    nw, nr, vw, vr
+                    safe(nw), safe(nr, is_weight=False), safe(vw), safe(vr, is_weight=False)
                 ])
                 count += 1
+
         if count:
             st.success(f"✅ {count} sets logged!")
+            time.sleep(0.5)
+            all_keys = [k for k in st.session_state.keys() if k.startswith("n_") or k.startswith("v_")]
+            for k in all_keys:
+                del st.session_state[k]
             st.rerun()
+
+    if st.session_state.get("should_rerun"):
+        st.success(f"✅ {st.session_state['logged_sets']} sets logged!")
+        for k in list(st.session_state.keys()):
+            if k.startswith("n_") or k.startswith("v_"):
+                del st.session_state[k]
+        del st.session_state["should_rerun"]
+        del st.session_state["logged_sets"]
+
+    if "logged_sets" in st.session_state:
+        st.success(f"✅ {st.session_state['logged_sets']} sets logged!")
+        del st.session_state["logged_sets"]
+
+    df = load_data()
+    if not df.empty:
+        last_focus = df[df["Focus"] == focus]
+        if not last_focus.empty:
+            st.markdown("---")
+            st.subheader(f"Summary for {focus} - {last_focus['Date'].max()}")
+            st.markdown("### Ninaad's Summary")
+            st.dataframe(build_summary_table("Ninaad", df, focus), use_container_width=True, hide_index=True)
+            st.markdown("### Vasanta's Summary")
+            st.dataframe(build_summary_table("Vasanta", df, focus), use_container_width=True, hide_index=True)
 
 def main():
     st.set_page_config(page_title="Workout Tracker", page_icon="🏋️‍♂️", layout="wide")
