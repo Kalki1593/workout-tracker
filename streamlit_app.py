@@ -181,3 +181,5 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+    # Updated to use GOOGLE_CREDS from secrets
