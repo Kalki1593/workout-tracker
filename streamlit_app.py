@@ -143,11 +143,16 @@ def log_workout():
 
         if count:
             st.success(f"✅ {count} sets logged!")
-            time.sleep(0.5)
-            all_keys = [k for k in st.session_state.keys() if k.startswith("n_") or k.startswith("v_")]
-            for k in all_keys:
-                del st.session_state[k]
-            st.rerun()
+            st.markdown(
+                """
+                <script>
+                setTimeout(function() {
+                    window.location.reload();
+                }, 1000);
+                </script>
+                """,
+                unsafe_allow_html=True
+            )
 
     if st.session_state.get("should_rerun"):
         st.success(f"✅ {st.session_state['logged_sets']} sets logged!")
