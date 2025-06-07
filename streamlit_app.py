@@ -14,7 +14,7 @@ SCOPE = [
 FOCUS_GROUPS = ["Back", "Shoulder", "Chest", "Biceps", "Legs", "Triceps"]
 
 def _get_sheet(tab_name: str):
-    service_account_info = json.loads(st.secrets["GOOGLE_CREDS"])
+    service_account_info = st.secrets["GOOGLE_CREDS"]
     creds = Credentials.from_service_account_info(service_account_info, scopes=SCOPE)
     client = gspread.authorize(creds)
     sheet = client.open_by_key("1MS0TYrMP_7rrsf9Trv50sqxJnk_837rLebtKXbpHKxA")
