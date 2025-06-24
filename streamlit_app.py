@@ -175,28 +175,52 @@ def log_workout():
             st.markdown("### Vasanta's Summary")
             st.dataframe(build_summary_table("Vasanta", df, focus), use_container_width=True, hide_index=True)
 
-def show_analytics(df, person="Ninaad"):
+def show_analytics(df):
     st.title("📊 Workout Analytics")
+
     df["Date"] = pd.to_datetime(df["Date"], errors="coerce")
-    
-    weight_col = f"{person}_Weight"
-    reps_col = f"{person}_Reps"
+    df = df.dropna(subset=["Date"])
 
-    st.subheader("🏋️ Max Weight Lifted (per Exercise)")
-    max_lifts = df.groupby(["Date", "Exercise"])[weight_col].max().reset_index()
-    for exercise in sorted(max_lifts["Exercise"].unique()):
-        ex_df = max_lifts[max_lifts["Exercise"] == exercise]
-        st.line_chart(ex_df.set_index("Date")[weight_col], use_container_width=True)
+    # Filter: Focus Group → Exercise
+    focus_group = st.selectbox("Choose Focus Muscle Group", sorted(df["Focus"].dropna().unique()))
+    focus_df = df[df["Focus"] == focus_group]
 
-    st.subheader("📈 Weekly Volume Progression")
-    df["Volume"] = df[weight_col] * df[reps_col]
-    df["Week"] = df["Date"].dt.to_period("W").apply(lambda r: r.start_time)
-    weekly_volume = df.groupby("Week")["Volume"].sum().reset_index()
-    st.bar_chart(weekly_volume.set_index("Week")["Volume"], use_container_width=True)
+    if focus_df.empty:
+        st.warning("No data for this focus group.")
+        return
 
-    st.subheader("📅 Workout Days per Week")
-    workout_days = df.groupby("Week")["Date"].nunique().reset_index(name="Workout Days")
-    st.line_chart(workout_days.set_index("Week")["Workout Days"], use_container_width=True)
+    exercise = st.selectbox("Choose Exercise", sorted(focus_df["Exercise"].dropna().unique()))
+    ex_df = focus_df[focus_df["Exercise"] == exercise]
+
+    if ex_df.empty:
+        st.warning("No data for this exercise.")
+        return
+
+    st.markdown(f"### 📈 Max Weight Over Time — *{exercise}*")
+
+    col1, col2 = st.columns(2)
+    with col1:
+        st.markdown("#### Ninaad")
+        chart_data = ex_df.groupby("Date")["Ninaad_Weight"].max()
+        st.line_chart(chart_data, use_container_width=True)
+    with col2:
+        st.markdown("#### Vasanta")
+        chart_data = ex_df.groupby("Date")["Vasanta_Weight"].max()
+        st.line_chart(chart_data, use_container_width=True)
+
+    st.markdown("### 📊 Weekly Volume")
+
+    ex_df["Week"] = ex_df["Date"].dt.to_period("W").apply(lambda r: r.start_time)
+    ex_df["Ninaad_Volume"] = ex_df["Ninaad_Weight"] * ex_df["Ninaad_Reps"]
+    ex_df["Vasanta_Volume"] = ex_df["Vasanta_Weight"] * ex_df["Vasanta_Reps"]
+
+    weekly = ex_df.groupby("Week")[["Ninaad_Volume", "Vasanta_Volume"]].sum()
+
+    st.bar_chart(weekly, use_container_width=True)
+
+    st.markdown("### 📅 Workout Days per Week (Total Logged Days)")
+    workout_days = df.groupby(df["Date"].dt.to_period("W").apply(lambda r: r.start_time))["Date"].nunique()
+    st.line_chart(workout_days, use_container_width=True)
 
 def main():
     st.set_page_config(page_title="Workout Tracker", page_icon="🏋️‍♂️", layout="wide")
