@@ -242,7 +242,7 @@ def main():
         log_workout()
     
     elif st.session_state["active_tab"] == "analytics":
-        show_analytics(df, person="Ninaad")  # Optional: add person switcher
+        show_analytics(df)  # Optional: add person switcher
 
 if __name__ == "__main__":
     main()
