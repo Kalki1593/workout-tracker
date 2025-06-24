@@ -219,7 +219,8 @@ def show_analytics(df):
     st.bar_chart(weekly, use_container_width=True)
 
     st.markdown("### 📅 Workout Days per Week (Total Logged Days)")
-    workout_days = df.groupby(df["Date"].dt.to_period("W").apply(lambda r: r.start_time))["Date"].nunique()
+    workout_days = df.groupby(df["Date"].dt.to_period("W").apply(lambda r: r.start_time))["Date"].nunique().reset_index(name="Workout Days")
+    workout_days = workout_days.rename(columns={"Date": "Week"}).set_index("Week")
     st.line_chart(workout_days, use_container_width=True)
 
 def main():
