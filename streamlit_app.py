@@ -5,6 +5,9 @@ from google.oauth2.service_account import Credentials
 import gspread
 import json
 
+if "active_tab" not in st.session_state:
+    st.session_state["active_tab"] = "logger"
+
 # ---------------------------  Google Sheets Access ---------------------------
 SCOPE = [
     "https://spreadsheets.google.com/feeds",
@@ -172,10 +175,50 @@ def log_workout():
             st.markdown("### Vasanta's Summary")
             st.dataframe(build_summary_table("Vasanta", df, focus), use_container_width=True, hide_index=True)
 
+def show_analytics(df, person="Ninaad"):
+    st.title("📊 Workout Analytics")
+    df["Date"] = pd.to_datetime(df["Date"], errors="coerce")
+    
+    weight_col = f"{person}_Weight"
+    reps_col = f"{person}_Reps"
+
+    st.subheader("🏋️ Max Weight Lifted (per Exercise)")
+    max_lifts = df.groupby(["Date", "Exercise"])[weight_col].max().reset_index()
+    for exercise in sorted(max_lifts["Exercise"].unique()):
+        ex_df = max_lifts[max_lifts["Exercise"] == exercise]
+        st.line_chart(ex_df.set_index("Date")[weight_col], use_container_width=True)
+
+    st.subheader("📈 Weekly Volume Progression")
+    df["Volume"] = df[weight_col] * df[reps_col]
+    df["Week"] = df["Date"].dt.to_period("W").apply(lambda r: r.start_time)
+    weekly_volume = df.groupby("Week")["Volume"].sum().reset_index()
+    st.bar_chart(weekly_volume.set_index("Week")["Volume"], use_container_width=True)
+
+    st.subheader("📅 Workout Days per Week")
+    workout_days = df.groupby("Week")["Date"].nunique().reset_index(name="Workout Days")
+    st.line_chart(workout_days.set_index("Week")["Workout Days"], use_container_width=True)
+
 def main():
     st.set_page_config(page_title="Workout Tracker", page_icon="🏋️‍♂️", layout="wide")
-    st.title("Log today's workout")
-    log_workout()
+
+    st.sidebar.title("🏋️ Navigation")
+    if st.sidebar.button("Go to Logger"):
+        st.session_state["active_tab"] = "logger"
+    if st.sidebar.button("Go to Analytics"):
+        st.session_state["active_tab"] = "analytics"
+
+    df = load_data()
+
+    if st.session_state["active_tab"] == "logger":
+        st.title("Log Today's Workout")
+        log_workout_button = st.button("📊 View Analytics")
+        if log_workout_button:
+            st.session_state["active_tab"] = "analytics"
+            st.experimental_rerun()
+        log_workout()
+    
+    elif st.session_state["active_tab"] == "analytics":
+        show_analytics(df, person="Ninaad")  # Optional: add person switcher
 
 if __name__ == "__main__":
     main()
